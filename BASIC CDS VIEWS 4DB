@@ -1,0 +1,61 @@
+@AbapCatalog.viewEnhancementCategory: [#NONE]
+@AccessControl.authorizationCheck: #NOT_REQUIRED
+@EndUserText.label: 'Basic View'
+@Metadata.ignorePropagatedAnnotations: true
+define view entity zi_kir_kna1
+  as select from kna1
+{
+  key kunnr as Customer,
+      name1 as Name,
+      land1 as Country
+}
+--------------------------------------------------------------------------
+@AbapCatalog.viewEnhancementCategory: [#NONE]
+@AccessControl.authorizationCheck: #NOT_REQUIRED
+@EndUserText.label: 'Basic View'
+@Metadata.ignorePropagatedAnnotations: true
+define view entity zi_kir_t006a
+  as select from t006a
+{
+  key spras as Language,
+  key msehi as Uom,
+      mseht as Text
+}
+
+--------------------------------------------------------------------------
+@AbapCatalog.viewEnhancementCategory: [#NONE]
+@AccessControl.authorizationCheck: #NOT_REQUIRED
+@EndUserText.label: 'Basic View'
+@Metadata.ignorePropagatedAnnotations: true
+define view entity zi_kir_vbrk
+  as select from vbrk
+{
+  key cast(vbeln as vbeln_vf preserving type ) as BillingDocument,
+      fkdat                                    as BillingDate,
+      kunrg                                    as Payer,
+      @Semantics.amount.currencyCode: 'Currency'
+      netwr                                    as Amount,
+      waerk                                    as Currency
+}
+
+
+----------------------------------------------------------------------------
+@AbapCatalog.viewEnhancementCategory: [#NONE]
+@AccessControl.authorizationCheck: #NOT_REQUIRED
+@EndUserText.label: 'Basic View'
+@Metadata.ignorePropagatedAnnotations: true
+define view entity zi_kir_vbrp
+  as select from vbrp
+{
+  key vbeln                as BillingDocument,
+  key posnr                as Item,
+      matnr                as Material,
+      arktx                as Description,
+      @Semantics.quantity.unitOfMeasure: 'UoM'
+      fkimg                as Quantity,
+      meins                as UoM,
+      @Semantics.amount.currencyCode: 'Currency'
+      netwr                as Amount,
+      cast('INR' as waerk) as Currency
+}
+-----------------------------------------------------------------------------
