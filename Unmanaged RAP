@@ -1,0 +1,368 @@
+unmanaged implementation in class zbp_r_kir_employee_um unique;
+strict ( 2 );
+with draft;
+define behavior for ZR_KIR_EMPLOYEE_UM alias Employee
+draft table ZDRKI_EMPLOYEE_u
+//late numbering
+early numbering
+lock master
+total etag Lastchangedat
+authorization master ( global, instance )
+etag master Locallastchangedat
+
+{
+  create ( authorization : global );
+  update;
+  delete;
+  field ( readonly ) empId;
+  draft action Activate optimized;
+  draft action Discard;
+  draft action Edit;
+  draft action Resume;
+  draft determine action Prepare;
+  action(features : instance) SetActive parameter zkir_emp_status result[1] $self;
+  factory action copy [1];
+  static factory action upload[1];
+  static action resetAll;
+  internal action resetStatus;
+  event studentEnrolled;
+}
+
+--------------------------------------------------------------------------------------------------------
+BEHAVIOUR POOL CLASS
+--------------------------------------------------------------------------------------------------------
+
+CLASS zbp_r_kir_employee_um DEFINITION PUBLIC ABSTRACT FINAL FOR BEHAVIOR OF zr_kir_employee_um.
+ENDCLASS.
+
+CLASS zbp_r_kir_employee_um IMPLEMENTATION.
+ENDCLASS.
+
+===================================================================================================
+IMPLEMENTATION
+===================================================================================================
+
+CLASS lhc_Employee DEFINITION INHERITING FROM cl_abap_behavior_handler.
+  PRIVATE SECTION.
+
+    METHODS get_instance_authorizations FOR INSTANCE AUTHORIZATION
+      IMPORTING keys REQUEST requested_authorizations FOR Employee RESULT result.
+
+    METHODS get_global_authorizations FOR GLOBAL AUTHORIZATION
+      IMPORTING REQUEST requested_authorizations FOR Employee RESULT result.
+
+    METHODS create FOR MODIFY
+      IMPORTING entities FOR CREATE Employee.
+
+    METHODS earlynumbering_create FOR NUMBERING
+      IMPORTING entities FOR CREATE Employee.
+
+    METHODS update FOR MODIFY
+      IMPORTING entities FOR UPDATE Employee.
+
+    METHODS delete FOR MODIFY
+      IMPORTING keys FOR DELETE Employee.
+
+    METHODS read FOR READ
+      IMPORTING keys FOR READ Employee RESULT result.
+
+    METHODS lock FOR LOCK
+      IMPORTING keys FOR LOCK Employee.
+    METHODS get_instance_features FOR INSTANCE FEATURES
+      IMPORTING keys REQUEST requested_features FOR Employee RESULT result.
+
+    METHODS SetActive FOR MODIFY
+      IMPORTING keys FOR ACTION Employee~SetActive RESULT result.
+    METHODS copy FOR MODIFY
+      IMPORTING keys FOR ACTION Employee~copy.
+
+    METHODS resetAll FOR MODIFY
+      IMPORTING keys FOR ACTION Employee~resetAll.
+
+    METHODS resetStatus FOR MODIFY
+      IMPORTING keys FOR ACTION Employee~resetStatus.
+
+    METHODS upload FOR MODIFY
+      IMPORTING keys FOR ACTION Employee~upload.
+
+ENDCLASS.
+
+CLASS lhc_Employee IMPLEMENTATION.
+
+  METHOD get_instance_authorizations.
+  ENDMETHOD.
+
+  METHOD get_global_authorizations.
+   DATA(auth_flag) = abap_true.
+    IF auth_flag =  abap_true.
+      result-%create = if_abap_behv=>auth-allowed.
+      result-%update = if_abap_behv=>auth-allowed.
+      result-%delete = if_abap_behv=>auth-allowed.
+      result-%action-SetActive = if_abap_behv=>auth-allowed.
+    ELSE.
+      result-%create = if_abap_behv=>auth-unauthorized.
+      result-%update = if_abap_behv=>auth-unauthorized.
+      result-%delete = if_abap_behv=>auth-unauthorized.
+      result-%action-SetActive = if_abap_behv=>auth-unauthorized.
+      APPEND VALUE #( %msg = new_message_with_text( text = 'Unauthorized!'
+                                                    severity = if_abap_behv_message=>severity-error )
+                      %global = if_abap_behv=>mk-on ) TO reported-employee.
+    ENDIF.
+  ENDMETHOD.
+
+  METHOD create.
+    zcl_kir_um_impl=>get_instance( )->create(
+      EXPORTING
+        entities = entities
+      CHANGING
+        mapped   = mapped
+        failed   = failed
+        reported = reported
+    ).
+  ENDMETHOD.
+
+  METHOD earlynumbering_create.
+    zcl_kir_um_impl=>get_instance( )->earlynumbering_create(
+      EXPORTING
+        entities = entities
+      CHANGING
+        mapped   = mapped
+        failed   = failed
+        reported = reported
+    ).
+  ENDMETHOD.
+
+  METHOD update.
+    zcl_kir_um_impl=>get_instance( )->update(
+      EXPORTING
+        entities = entities
+      CHANGING
+        mapped   = mapped
+        failed   = failed
+        reported = reported
+    ).
+  ENDMETHOD.
+
+
+  METHOD delete.
+    zcl_kir_um_impl=>get_instance( )->delete(
+      EXPORTING
+        keys     = keys
+      CHANGING
+        mapped   = mapped
+        failed   = failed
+        reported = reported
+    ).
+  ENDMETHOD.
+
+  METHOD read.
+    zcl_kir_um_impl=>get_instance( )->read(
+      EXPORTING
+        keys     = keys
+      CHANGING
+        result   = result
+        failed   = failed
+        reported = reported
+    ).
+  ENDMETHOD.
+
+  METHOD lock.
+    TRY.
+
+        DATA(o_lock) = cl_abap_lock_object_factory=>get_instance( iv_name = 'EZ_STUDENT' ).
+
+      CATCH cx_abap_lock_failure INTO DATA(error).
+    ENDTRY.
+    TRY.
+        o_lock->enqueue(
+*    it_table_mode =
+    it_parameter  = VALUE #( ( name = 'ID' value = REF #( keys[ 1 ]-empId ) ) )
+*    _scope        =
+*    _wait         =
+        ).
+      CATCH cx_abap_foreign_lock INTO DATA(err).
+        reported-employee = VALUE #( ( %tky-empId = keys[ 1 ]-empId
+                                       %msg = new_message_with_text(
+                                                severity = if_abap_behv_message=>severity-error
+                                                text     = err->get_longtext(  )
+                                              )
+                                   ) ).
+      CATCH cx_abap_lock_failure.
+*      RAISE SHORTDUMP.
+    ENDTRY.
+  ENDMETHOD.
+
+  METHOD get_instance_features.
+    READ ENTITIES OF zr_kir_employee_um IN LOCAL MODE
+          ENTITY Employee
+             FIELDS ( Status )
+             WITH CORRESPONDING #( keys )
+           RESULT DATA(employees)
+           FAILED failed.
+
+    result =
+   VALUE #( FOR employee IN employees
+     ( %key = employee-%key
+       %features-%action-SetActive = COND #( WHEN employee-Status = 'X'
+                                                THEN if_abap_behv=>fc-o-disabled
+                                                ELSE if_abap_behv=>fc-o-enabled )
+      ) ).
+  ENDMETHOD.
+
+  METHOD SetActive.
+*  DATA it_reset TYPE TABLE FOR ACTION IMPORT zr_kir_employee_um~resetStatus.
+*    it_reset = CORRESPONDING #( keys ).
+*    MODIFY ENTITIES OF ZCDS_DRAFT_STU_um IN LOCAL MODE
+*    ENTITY Students
+*    EXECUTE resetStatus
+*    FROM it_reset.
+    IF keys IS NOT INITIAL.
+      "Read Entity
+*    READ ENTITY IN LOCAL MODE zr_kir_employee_um
+*     ALL FIELDS WITH CORRESPONDING #( keys )
+*     RESULT DATA(it_result1)
+*     FAILED DATA(it_failed1).
+
+      MODIFY ENTITY IN LOCAL MODE zr_kir_employee_um
+            UPDATE FIELDS ( Location Status )
+            WITH VALUE #( ( %tky = keys[ 1 ]-%tky
+                            Location = keys[ 1 ]-%param-location
+                            Status = keys[ 1 ]-%param-Status
+                         ) ).
+
+      READ ENTITY IN LOCAL MODE zr_kir_employee_um
+      ALL FIELDS WITH CORRESPONDING #( keys )
+      RESULT DATA(it_result)
+      FAILED DATA(it_failed).
+
+      result = VALUE #( ( %tky = it_result[ 1 ]-%tky
+                          %param = it_result[ 1 ]
+                      ) ).
+
+    ENDIF.
+  ENDMETHOD.
+
+  METHOD copy.
+    IF keys IS NOT INITIAL.
+      DATA employees TYPE TABLE FOR CREATE zr_kir_employee_um\\Employee.
+      READ ENTITY IN LOCAL MODE zr_kir_employee_um
+      ALL FIELDS WITH CORRESPONDING #( keys )
+      RESULT DATA(lt_employees)
+      FAILED DATA(lt_failed)
+      REPORTED DATA(lt_reported).
+
+      LOOP AT lt_employees ASSIGNING FIELD-SYMBOL(<employee>).
+
+        APPEND VALUE #( %cid      = keys[ KEY entity %key = <employee>-%key ]-%cid
+                       %is_draft = keys[ KEY entity %key = <employee>-%key ]-%param-%is_draft
+                       %data     = CORRESPONDING #( <employee> EXCEPT empid )
+                    )
+        TO employees ASSIGNING FIELD-SYMBOL(<new_employee>).
+
+        " adjust the copied travel instance data
+        "" BeginDate must be on or after system date
+        GET TIME STAMP FIELD DATA(tsl).
+        <new_employee>-Lastchangedat     = tsl.
+        <new_employee>-locallastchangedat = tsl.
+        <new_employee>-empId = cl_uuid_factory=>create_system_uuid(  )->create_uuid_x16( ).
+      ENDLOOP.
+
+      " create new BO instance
+      MODIFY ENTITIES OF zr_kir_employee_um IN LOCAL MODE
+         ENTITY Employee
+         CREATE FIELDS ( Department Lastchangedat Location Name Status locallastchangedat )
+            WITH employees
+         MAPPED DATA(mapped_create).
+
+      " set the new BO instances
+      mapped-employee   =  mapped_create-employee .
+    ENDIF.
+  ENDMETHOD.
+
+  METHOD resetAll.
+  ENDMETHOD.
+
+  METHOD resetStatus.
+    READ ENTITY IN LOCAL MODE zr_kir_employee_um
+     ALL FIELDS WITH CORRESPONDING #( keys )
+     RESULT DATA(employees)
+     FAILED failed.
+
+    LOOP AT employees ASSIGNING FIELD-SYMBOL(<fs_employee>).
+      CLEAR <fs_employee>-Status.
+    ENDLOOP.
+    MODIFY ENTITY IN LOCAL MODE zr_kir_employee_um
+    UPDATE FIELDS ( Status )
+    WITH VALUE #( FOR employee IN employees  (
+                           %tky      = employee-%tky
+                           status  = employee-status ) ).
+  ENDMETHOD.
+
+  METHOD upload.
+    DATA employees TYPE TABLE FOR CREATE zr_kir_employee_um\\Employee.
+    IF keys IS NOT INITIAL.
+      GET TIME STAMP FIELD DATA(tsl).
+      employees = VALUE #( ( %cid = keys[ 1 ]-%cid
+                            %is_draft = keys[ 1 ]-%param-%is_draft
+
+                         %data = VALUE #( department = 'SAP'
+                                        Location = 'India'
+                                             empid = cl_uuid_factory=>create_system_uuid(  )->create_uuid_x16( )
+                                             Lastchangedat = tsl
+                                             locallastchangedat = tsl
+                                           )
+                     ) ).
+
+
+
+      " create new BO instance
+      MODIFY ENTITIES OF zr_kir_employee_um IN LOCAL MODE
+         ENTITY Employee
+         CREATE FIELDS ( Department Lastchangedat Location Name Status locallastchangedat )
+            WITH Employees
+         MAPPED DATA(mapped_create).
+
+      " set the new BO instances
+      mapped-employee   =  mapped_create-employee .
+    ENDIF.
+  ENDMETHOD.
+
+ENDCLASS.
+
+CLASS lsc_ZR_KIR_EMPLOYEE_UM DEFINITION INHERITING FROM cl_abap_behavior_saver.
+  PROTECTED SECTION.
+
+    METHODS finalize REDEFINITION.
+
+    METHODS check_before_save REDEFINITION.
+
+    METHODS save REDEFINITION.
+
+    METHODS cleanup REDEFINITION.
+
+    METHODS cleanup_finalize REDEFINITION.
+
+ENDCLASS.
+
+CLASS lsc_ZR_KIR_EMPLOYEE_UM IMPLEMENTATION.
+
+  METHOD finalize.
+  ENDMETHOD.
+
+  METHOD check_before_save.
+  ENDMETHOD.
+
+  METHOD save.
+    zcl_kir_um_impl=>get_instance( )->save(
+      CHANGING
+        reported = reported
+    ).
+  ENDMETHOD.
+
+  METHOD cleanup.
+  ENDMETHOD.
+
+  METHOD cleanup_finalize.
+  ENDMETHOD.
+
+ENDCLASS.
