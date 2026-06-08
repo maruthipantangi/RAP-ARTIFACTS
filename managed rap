@@ -1,0 +1,31 @@
+managed implementation in class zbp_r_kir_employee unique;
+strict ( 2 );
+with draft;
+define behavior for ZR_KIR_EMPLOYEE alias Employee
+//persistent table zkir_employee
+with unmanaged save
+draft table zkir_dr_employee
+lock master
+total etag Lastchangedat
+authorization master ( instance )
+etag master Locallastchangedat
+
+{
+  create ( authorization : global );
+  update;
+  delete;
+  field ( readonly, numbering : managed ) empId;
+  validation checkLocation on save {create;update;}
+  determination fillDepartment on modify{field Location;}
+  side effects {field Location affects field Department;}
+  draft action Activate optimized;
+  draft action Discard;
+  draft action Edit;
+  draft action Resume;
+  draft determine action Prepare{
+  validation checkLocation;
+  }
+  mapping for zkir_employee corresponding{
+    empId = id;
+  }
+}
